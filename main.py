@@ -1,487 +1,895 @@
 import io
-import logging
+import csv
+import calendar
+from datetime import datetime, date, timedelta, timezone
+from typing import Optional, List
+from urllib.parse import quote
+
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, PlainTextResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc, asc
+
+from backend.database import engine, get_db, Base
+from backend.models import User, AllowanceCycle, RefillLog, Expense
+from backend.auth import hash_password, verify_password, create_access_token, get_current_user
+from backend.schemas import (
+    UserRegister, UserLogin, UserResponse, UserUpdate, TokenResponse,
+    AllowanceCycleCreate, AllowanceCycleUpdate, AllowanceCycleResponse,
+    RefillLogCreate, RefillLogResponse,
+    ExpenseCreate, ExpenseUpdate, ExpenseResponse,
+    DashboardSummary, CategorySpend, DailySpend, SettlementSummary,
+    ClassifyRequest, ClassifyResponse
+)
+
+# Initialize database tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Personal Expense & Allowance Tracker API",
+    description="Full-stack API for tracking family allowances, refills, day-to-day expenses and settlement reports",
+    version="1.0.0"
+)
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Predefined categories with colors and Lucide icons
+CATEGORY_METADATA = {
+    "Food & Dining": {"color": "#f97316", "icon": "utensils"},
+    "Groceries": {"color": "#10b981", "icon": "shopping-bag"},
+    "Transport & Fuel": {"color": "#3b82f6", "icon": "car"},
+    "Books & Study": {"color": "#8b5cf6", "icon": "book-open"},
+    "Bills & Utilities": {"color": "#eab308", "icon": "zap"},
+    "Health & Medical": {"color": "#ef4444", "icon": "heart-pulse"},
+    "Entertainment & Outings": {"color": "#ec4899", "icon": "film"},
+    "Hostel & Room": {"color": "#14b8a6", "icon": "home"},
+    "Emergency": {"color": "#dc2626", "icon": "alert-circle"},
+    "Personal & Clothing": {"color": "#06b6d4", "icon": "user"},
+    "Other": {"color": "#64748b", "icon": "tag"},
+}
+
+
+def get_current_month_year() -> str:
+    now = datetime.now(timezone.utc)
+    return f"{now.year:04d}-{now.month:02d}"
+
+
+def get_or_create_cycle(db: Session, user_id: int, month_year: str) -> AllowanceCycle:
+    cycle = db.query(AllowanceCycle).filter(
+        AllowanceCycle.user_id == user_id,
+        AllowanceCycle.month_year == month_year
+    ).first()
+    if not cycle:
+        cycle = AllowanceCycle(
+            user_id=user_id,
+            month_year=month_year,
+            initial_allowance=0.0,
+            funding_source="Parents",
+            notes="Default cycle created automatically"
+        )
+        db.add(cycle)
+        db.commit()
+        db.refresh(cycle)
+    return cycle
+
+
+# ==========================================
+# AUTHENTICATION ROUTES
+# ==========================================
+
+@app.post("/api/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+def register(user_in: UserRegister, db: Session = Depends(get_db)):
+    # Check if email exists
+    if db.query(User).filter(User.email == user_in.email.lower()).first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email already exists."
+        )
+
+    # Check if phone exists (if provided)
+    if user_in.phone and db.query(User).filter(User.phone == user_in.phone).first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this phone number already exists."
+        )
+
+    hashed_pw = hash_password(user_in.password)
+    user = User(
+        email=user_in.email.lower(),
+        phone=user_in.phone,
+        full_name=user_in.full_name,
+        hashed_password=hashed_pw,
+        currency_symbol=user_in.currency_symbol or "₹",
+        currency_code=user_in.currency_code or "INR"
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    # Seed initial cycle for current month with 0.0 allowance (user fills on their own)
+    current_month = get_current_month_year()
+    starter_cycle = AllowanceCycle(
+        user_id=user.id,
+        month_year=current_month,
+        initial_allowance=0.0,
+        funding_source="Parents",
+        notes="Starting monthly allowance (to be set by user)"
+    )
+    db.add(starter_cycle)
+    db.commit()
+
+    token = create_access_token(data={"sub": str(user.id)})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user)
+    )
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+def login(login_in: UserLogin, db: Session = Depends(get_db)):
+    username = login_in.username.strip().lower()
+    # Search by email or phone
+    user = db.query(User).filter(
+        (User.email == username) | (User.phone == login_in.username.strip())
+    ).first()
+
+    if not user or not verify_password(login_in.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials. Please check your email/mobile number and password."
+        )
+
+    token = create_access_token(data={"sub": str(user.id)})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user)
+    )
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    return UserResponse.model_validate(current_user)
+
+
+@app.put("/api/auth/profile", response_model=UserResponse)
+def update_profile(
+    profile_in: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if profile_in.full_name is not None:
+        current_user.full_name = profile_in.full_name.strip()
+    if profile_in.phone is not None:
+        current_user.phone = profile_in.phone.strip()
+    if profile_in.currency_symbol is not None:
+        current_user.currency_symbol = profile_in.currency_symbol
+    if profile_in.currency_code is not None:
+        current_user.currency_code = profile_in.currency_code
+
+    db.commit()
+    db.refresh(current_user)
+    return UserResponse.model_validate(current_user)
+
+
+# ==========================================
+# CATEGORIES ENDPOINT
+# ==========================================
+
+@app.get("/api/categories")
+def get_categories():
+    return [
+        {"name": name, "color": meta["color"], "icon": meta["icon"]}
+        for name, meta in CATEGORY_METADATA.items()
+    ]
+
+
+CATEGORY_KEYWORDS = {
+    "Food & Dining": [
+        "canteen", "lunch", "dinner", "breakfast", "brunch", "snack", "snacks",
+        "coffee", "tea", "chai", "burger", "pizza", "biryani", "swiggy", "zomato",
+        "cafe", "restaurant", "hotel food", "mess", "dosa", "idli", "maggi",
+        "subway", "kfc", "mcdonalds", "starbucks", "bakery", "ice cream", "dessert",
+        "shawarma", "sandwich", "paneer", "roll", "momos", "thali", "juice", "eat", "meal"
+    ],
+    "Groceries": [
+        "grocery", "groceries", "milk", "bread", "eggs", "vegetables", "fruits",
+        "sabzi", "kirana", "supermarket", "d-mart", "dmart", "blinkit", "zepto",
+        "instamart", "bigbasket", "rice", "dal", "flour", "atta", "spices",
+        "oil", "butter", "cheese", "snack refill", "pantry", "household provisions", "soap", "toothpaste"
+    ],
+    "Transport & Fuel": [
+        "metro", "bus", "auto", "rickshaw", "uber", "ola", "rapido", "cab", "taxi",
+        "petrol", "diesel", "fuel", "gasoline", "train", "railway", "irctc",
+        "flight", "toll", "parking", "scooter", "bike", "mechanic", "fare", "travel", "smartcard"
+    ],
+    "Books & Study": [
+        "book", "books", "textbook", "notebook", "stationery", "pen", "pens",
+        "pencil", "xerox", "photocopy", "printout", "spiral", "course", "udemy",
+        "coursera", "tuition", "coaching", "exam fee", "form fee", "college fee",
+        "library", "calculator", "lab coat", "assignment", "project print", "study"
+    ],
+    "Bills & Utilities": [
+        "bill", "electricity", "water", "wifi", "broadband", "internet",
+        "recharge", "airtel", "jio", "vi", "bsnl", "mobile recharge", "dth",
+        "gas cylinder", "indane", "hp gas", "maintenance fee", "electric"
+    ],
+    "Health & Medical": [
+        "medicine", "medical", "doctor", "hospital", "clinic", "pharmacy",
+        "chemist", "apollo", "medplus", "1mg", "tablet", "syrup", "capsule",
+        "bandage", "crocin", "paracetamol", "dentist", "eye checkup", "specs",
+        "consultation", "lab test", "blood test", "fever", "cough"
+    ],
+    "Entertainment & Outings": [
+        "movie", "cinema", "pvr", "inox", "film", "theatre", "netflix", "prime",
+        "hotstar", "spotify", "youtube", "gaming", "game", "steam", "playstation",
+        "concert", "show", "amusement", "trip", "picnic", "bowling", "outing", "club"
+    ],
+    "Hostel & Room": [
+        "hostel", "pg fee", "room rent", "rent", "landlord", "flat rent",
+        "deposit", "security deposit", "mess advance", "room maintenance", "warden"
+    ],
+    "Emergency": [
+        "emergency", "urgent", "hospital emergency", "lost", "theft", "penalty",
+        "traffic fine", "police fine", "challan", "damage", "repair urgent", "breakage"
+    ],
+    "Personal & Clothing": [
+        "clothes", "clothing", "shirt", "t-shirt", "jeans", "trousers", "shoes",
+        "slippers", "sandals", "zara", "h&m", "myntra", "ajio", "amazon fashion",
+        "haircut", "salon", "barber", "parlour", "shampoo", "perfume", "deodorant",
+        "facewash", "skincare", "lotion", "watch"
+    ]
+}
+
+
+@app.post("/api/ai/classify-category", response_model=ClassifyResponse)
+def ai_classify_category(req: ClassifyRequest):
+    desc_clean = req.description.strip().lower()
+    if not desc_clean:
+        return ClassifyResponse(category="Other", confidence=0.0, matched=False)
+
+    best_category = "Other"
+    best_score = 0
+
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        score = 0
+        for kw in keywords:
+            if kw in desc_clean:
+                # Give higher weight to exact whole words
+                if f" {kw} " in f" {desc_clean} " or desc_clean.startswith(kw) or desc_clean.endswith(kw):
+                    score += 3
+                else:
+                    score += 1
+        if score > best_score:
+            best_score = score
+            best_category = category
+
+    confidence = round(min(0.98, max(0.45, best_score * 0.25)), 2) if best_score > 0 else 0.0
+    return ClassifyResponse(
+        category=best_category if best_score > 0 else "Other",
+        confidence=confidence,
+        matched=best_score > 0
+    )
+
+
+
+# ==========================================
+# ALLOWANCE CYCLE ENDPOINTS
+# ==========================================
+
+@app.get("/api/cycles", response_model=List[AllowanceCycleResponse])
+def get_cycles(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    cycles = db.query(AllowanceCycle).filter(
+        AllowanceCycle.user_id == current_user.id
+    ).order_by(desc(AllowanceCycle.month_year)).all()
+    return [AllowanceCycleResponse.model_validate(c) for c in cycles]
+
+
+@app.get("/api/cycles/current", response_model=AllowanceCycleResponse)
+def get_current_cycle(
+    month_year: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_month = month_year or get_current_month_year()
+    cycle = get_or_create_cycle(db, current_user.id, target_month)
+    return AllowanceCycleResponse.model_validate(cycle)
+
+
+@app.post("/api/cycles", response_model=AllowanceCycleResponse)
+def set_monthly_allowance(
+    cycle_in: AllowanceCycleCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    cycle = db.query(AllowanceCycle).filter(
+        AllowanceCycle.user_id == current_user.id,
+        AllowanceCycle.month_year == cycle_in.month_year
+    ).first()
+
+    if cycle:
+        cycle.initial_allowance = cycle_in.initial_allowance
+        if cycle_in.funding_source:
+            cycle.funding_source = cycle_in.funding_source
+        if cycle_in.notes is not None:
+            cycle.notes = cycle_in.notes
+        cycle.updated_at = datetime.now(timezone.utc)
+    else:
+        cycle = AllowanceCycle(
+            user_id=current_user.id,
+            month_year=cycle_in.month_year,
+            initial_allowance=cycle_in.initial_allowance,
+            funding_source=cycle_in.funding_source or "Parents",
+            notes=cycle_in.notes
+        )
+        db.add(cycle)
+
+    db.commit()
+    db.refresh(cycle)
+    return AllowanceCycleResponse.model_validate(cycle)
+
+
+# ==========================================
+# MID-MONTH REFILLS & TOP-UPS
+# ==========================================
+
+@app.post("/api/refills", response_model=RefillLogResponse, status_code=status.HTTP_201_CREATED)
+def add_refill(
+    refill_in: RefillLogCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    refill_date = refill_in.date or date.today()
+    month_year = refill_in.month_year or f"{refill_date.year:04d}-{refill_date.month:02d}"
+    cycle = get_or_create_cycle(db, current_user.id, month_year)
+
+    refill = RefillLog(
+        user_id=current_user.id,
+        cycle_id=cycle.id,
+        amount=refill_in.amount,
+        funding_source=refill_in.funding_source or "Parents",
+        reason=refill_in.reason or "Mid-month refill",
+        date=refill_date,
+        payment_mode=refill_in.payment_mode or "UPI"
+    )
+    db.add(refill)
+    db.commit()
+    db.refresh(refill)
+    return RefillLogResponse.model_validate(refill)
+
+
+@app.get("/api/refills", response_model=List[RefillLogResponse])
+def get_refills(
+    month_year: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_month = month_year or get_current_month_year()
+    cycle = db.query(AllowanceCycle).filter(
+        AllowanceCycle.user_id == current_user.id,
+        AllowanceCycle.month_year == target_month
+    ).first()
+
+    if not cycle:
+        return []
+
+    refills = db.query(RefillLog).filter(
+        RefillLog.user_id == current_user.id,
+        RefillLog.cycle_id == cycle.id
+    ).order_by(desc(RefillLog.date), desc(RefillLog.id)).all()
+
+    return [RefillLogResponse.model_validate(r) for r in refills]
+
+
+@app.delete("/api/refills/{refill_id}")
+def delete_refill(
+    refill_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    refill = db.query(RefillLog).filter(
+        RefillLog.id == refill_id,
+        RefillLog.user_id == current_user.id
+    ).first()
+    if not refill:
+        raise HTTPException(status_code=404, detail="Refill record not found")
+
+    db.delete(refill)
+    db.commit()
+    return {"message": "Refill deleted successfully"}
+
+
+# ==========================================
+# EXPENSES ENDPOINTS
+# ==========================================
+
+@app.post("/api/expenses", response_model=ExpenseResponse, status_code=status.HTTP_201_CREATED)
+def create_expense(
+    expense_in: ExpenseCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    exp_date = expense_in.date
+    month_year = f"{exp_date.year:04d}-{exp_date.month:02d}"
+    cycle = get_or_create_cycle(db, current_user.id, month_year)
+
+    expense = Expense(
+        user_id=current_user.id,
+        cycle_id=cycle.id,
+        amount=expense_in.amount,
+        category=expense_in.category,
+        date=exp_date,
+        description=expense_in.description.strip(),
+        payment_mode=expense_in.payment_mode or "UPI",
+        receipt_note=expense_in.receipt_note.strip() if expense_in.receipt_note else None,
+        is_essential=expense_in.is_essential if expense_in.is_essential is not None else True
+    )
+    db.add(expense)
+    db.commit()
+    db.refresh(expense)
+    return ExpenseResponse.model_validate(expense)
+
+
+@app.get("/api/expenses", response_model=List[ExpenseResponse])
+def get_expenses(
+    month_year: Optional[str] = None,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    sort_by: Optional[str] = "date_desc",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Expense).filter(Expense.user_id == current_user.id)
+
+    if month_year:
+        try:
+            year_val, month_val = map(int, month_year.split("-"))
+            _, last_day = calendar.monthrange(year_val, month_val)
+            m_start = date(year_val, month_val, 1)
+            m_end = date(year_val, month_val, last_day)
+            query = query.filter(Expense.date >= m_start, Expense.date <= m_end)
+        except ValueError:
+            pass
+
+    if start_date:
+        query = query.filter(Expense.date >= start_date)
+    if end_date:
+        query = query.filter(Expense.date <= end_date)
+
+    if category and category != "All":
+        query = query.filter(Expense.category == category)
+
+    if search:
+        search_fmt = f"%{search.strip().lower()}%"
+        query = query.filter(
+            func.lower(Expense.description).like(search_fmt) |
+            func.lower(Expense.receipt_note).like(search_fmt)
+        )
+
+    # Sorting
+    if sort_by == "date_asc":
+        query = query.order_by(asc(Expense.date), asc(Expense.id))
+    elif sort_by == "amount_desc":
+        query = query.order_by(desc(Expense.amount), desc(Expense.date))
+    elif sort_by == "amount_asc":
+        query = query.order_by(asc(Expense.amount), desc(Expense.date))
+    else:  # date_desc default
+        query = query.order_by(desc(Expense.date), desc(Expense.id))
+
+    expenses = query.all()
+    return [ExpenseResponse.model_validate(e) for e in expenses]
+
+
+@app.put("/api/expenses/{expense_id}", response_model=ExpenseResponse)
+def update_expense(
+    expense_id: int,
+    expense_in: ExpenseUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    expense = db.query(Expense).filter(
+        Expense.id == expense_id,
+        Expense.user_id == current_user.id
+    ).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    if expense_in.amount is not None:
+        expense.amount = expense_in.amount
+    if expense_in.category is not None:
+        expense.category = expense_in.category
+    if expense_in.date is not None:
+        expense.date = expense_in.date
+        month_year = f"{expense.date.year:04d}-{expense.date.month:02d}"
+        cycle = get_or_create_cycle(db, current_user.id, month_year)
+        expense.cycle_id = cycle.id
+    if expense_in.description is not None:
+        expense.description = expense_in.description.strip()
+    if expense_in.payment_mode is not None:
+        expense.payment_mode = expense_in.payment_mode
+    if expense_in.receipt_note is not None:
+        expense.receipt_note = expense_in.receipt_note.strip()
+    if expense_in.is_essential is not None:
+        expense.is_essential = expense_in.is_essential
+
+    db.commit()
+    db.refresh(expense)
+    return ExpenseResponse.model_validate(expense)
+
+
+@app.delete("/api/expenses/{expense_id}")
+def delete_expense(
+    expense_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    expense = db.query(Expense).filter(
+        Expense.id == expense_id,
+        Expense.user_id == current_user.id
+    ).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    db.delete(expense)
+    db.commit()
+    return {"message": "Expense deleted successfully"}
+
+
+# ==========================================
+# DASHBOARD SUMMARY & ANALYTICS
+# ==========================================
+
+@app.get("/api/dashboard/summary", response_model=DashboardSummary)
+def get_dashboard_summary(
+    month_year: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_month = month_year or get_current_month_year()
+    try:
+        year_val, month_val = map(int, target_month.split("-"))
+    except ValueError:
+        now_dt = datetime.now(timezone.utc)
+        year_val, month_val = now_dt.year, now_dt.month
+        target_month = f"{year_val:04d}-{month_val:02d}"
+
+    _, days_in_month = calendar.monthrange(year_val, month_val)
+    m_start = date(year_val, month_val, 1)
+    m_end = date(year_val, month_val, days_in_month)
+
+    cycle = get_or_create_cycle(db, current_user.id, target_month)
+
+    # Refills in this cycle
+    refills = db.query(RefillLog).filter(
+        RefillLog.user_id == current_user.id,
+        RefillLog.cycle_id == cycle.id
+    ).order_by(desc(RefillLog.date)).all()
+    total_refills = sum(r.amount for r in refills)
+
+    # Total budget = Starting allowance + Refills
+    total_budget = cycle.initial_allowance + total_refills
+
+    # Expenses in this cycle/month
+    expenses = db.query(Expense).filter(
+        Expense.user_id == current_user.id,
+        Expense.date >= m_start,
+        Expense.date <= m_end
+    ).order_by(desc(Expense.date), desc(Expense.id)).all()
+
+    total_spent = sum(e.amount for e in expenses)
+    remaining_balance = total_budget - total_spent
+
+    # Calculate days logic
+    today = date.today()
+    if today.year == year_val and today.month == month_val:
+        days_passed = today.day
+        days_remaining = max(1, days_in_month - days_passed + 1)
+    elif today > m_end:
+        days_passed = days_in_month
+        days_remaining = 0
+    else:
+        days_passed = 0
+        days_remaining = days_in_month
+
+    # Daily spending metrics
+    daily_budget_remaining = round(max(0.0, remaining_balance) / days_remaining, 2) if days_remaining > 0 else 0.0
+    daily_average_spent = round(total_spent / max(1, days_passed), 2) if days_passed > 0 else 0.0
+
+    burn_rate_percent = round((total_spent / total_budget * 100), 1) if total_budget > 0 else (100.0 if total_spent > 0 else 0.0)
+
+    # Spent today and this week
+    spent_today = sum(e.amount for e in expenses if e.date == today)
+    one_week_ago = today - timedelta(days=7)
+    spent_this_week = sum(e.amount for e in expenses if e.date >= one_week_ago)
+
+    # Category Breakdown
+    category_totals = {}
+    category_counts = {}
+    for exp in expenses:
+        category_totals[exp.category] = category_totals.get(exp.category, 0.0) + exp.amount
+        category_counts[exp.category] = category_counts.get(exp.category, 0) + 1
+
+    category_breakdown = []
+    for cat_name, amt in sorted(category_totals.items(), key=lambda x: x[1], reverse=True):
+        pct = round((amt / total_spent * 100), 1) if total_spent > 0 else 0.0
+        meta = CATEGORY_METADATA.get(cat_name, {"color": "#64748b", "icon": "tag"})
+        category_breakdown.append(CategorySpend(
+            category=cat_name,
+            total_amount=round(amt, 2),
+            percentage=pct,
+            count=category_counts[cat_name],
+            color=meta["color"],
+            icon=meta["icon"]
+        ))
+
+    # Daily spending map for charts
+    day_spend_map = {d: 0.0 for d in range(1, days_in_month + 1)}
+    for exp in expenses:
+        if 1 <= exp.date.day <= days_in_month:
+            day_spend_map[exp.date.day] += exp.amount
+
+    daily_spending = [
+        DailySpend(
+            date=f"{year_val:04d}-{month_val:02d}-{d:02d}",
+            day=d,
+            amount=round(day_spend_map[d], 2)
+        )
+        for d in range(1, days_in_month + 1)
+    ]
+
+    recent_expenses = [ExpenseResponse.model_validate(e) for e in expenses[:10]]
+    refill_responses = [RefillLogResponse.model_validate(r) for r in refills]
+
+    return DashboardSummary(
+        month_year=target_month,
+        currency_symbol=current_user.currency_symbol or "₹",
+        initial_allowance=round(cycle.initial_allowance, 2),
+        total_refills=round(total_refills, 2),
+        total_budget=round(total_budget, 2),
+        total_spent=round(total_spent, 2),
+        remaining_balance=round(remaining_balance, 2),
+        spent_today=round(spent_today, 2),
+        spent_this_week=round(spent_this_week, 2),
+        burn_rate_percent=burn_rate_percent,
+        days_in_month=days_in_month,
+        days_passed=days_passed,
+        days_remaining=days_remaining,
+        daily_budget_remaining=daily_budget_remaining,
+        daily_average_spent=daily_average_spent,
+        category_breakdown=category_breakdown,
+        daily_spending=daily_spending,
+        recent_expenses=recent_expenses,
+        refills=refill_responses
+    )
+
+
+# ==========================================
+# PARENT SETTLEMENT & EXPENSE BREAKDOWN REPORT
+# ==========================================
+
+@app.get("/api/settlement/summary", response_model=SettlementSummary)
+def get_settlement_summary(
+    month_year: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_month = month_year or get_current_month_year()
+    try:
+        year_val, month_val = map(int, target_month.split("-"))
+    except ValueError:
+        now_dt = datetime.now(timezone.utc)
+        year_val, month_val = now_dt.year, now_dt.month
+        target_month = f"{year_val:04d}-{month_val:02d}"
+
+    month_name = calendar.month_name[month_val]
+    formatted_month = f"{month_name} {year_val}"
+
+    _, days_in_month = calendar.monthrange(year_val, month_val)
+    m_start = date(year_val, month_val, 1)
+    m_end = date(year_val, month_val, days_in_month)
+
+    cycle = get_or_create_cycle(db, current_user.id, target_month)
+
+    refills = db.query(RefillLog).filter(
+        RefillLog.user_id == current_user.id,
+        RefillLog.cycle_id == cycle.id
+    ).order_by(asc(RefillLog.date)).all()
+    total_refills = sum(r.amount for r in refills)
+    total_received = cycle.initial_allowance + total_refills
+
+    expenses = db.query(Expense).filter(
+        Expense.user_id == current_user.id,
+        Expense.date >= m_start,
+        Expense.date <= m_end
+    ).order_by(asc(Expense.date), asc(Expense.id)).all()
+
+    total_spent = sum(e.amount for e in expenses)
+    remaining_balance = total_received - total_spent
+    is_deficit = remaining_balance < 0
+    deficit_or_surplus_amount = abs(remaining_balance)
+
+    essential_spent = sum(e.amount for e in expenses if e.is_essential)
+    non_essential_spent = sum(e.amount for e in expenses if not e.is_essential)
+
+    # Categories
+    category_totals = {}
+    category_counts = {}
+    for exp in expenses:
+        category_totals[exp.category] = category_totals.get(exp.category, 0.0) + exp.amount
+        category_counts[exp.category] = category_counts.get(exp.category, 0) + 1
+
+    category_summary = []
+    for cat_name, amt in sorted(category_totals.items(), key=lambda x: x[1], reverse=True):
+        pct = round((amt / total_spent * 100), 1) if total_spent > 0 else 0.0
+        meta = CATEGORY_METADATA.get(cat_name, {"color": "#64748b", "icon": "tag"})
+        category_summary.append(CategorySpend(
+            category=cat_name,
+            total_amount=round(amt, 2),
+            percentage=pct,
+            count=category_counts[cat_name],
+            color=meta["color"],
+            icon=meta["icon"]
+        ))
+
+    sym = current_user.currency_symbol or "₹"
+
+    # Pre-formatted WhatsApp share message
+    lines = [
+        f"📋 *Monthly Expense & Allowance Settlement*",
+        f"👤 *Student / User:* {current_user.full_name}",
+        f"📅 *Period:* {formatted_month}",
+        f"────────────────────────",
+        f"💰 *Starting Allowance:* {sym}{cycle.initial_allowance:,.2f}",
+    ]
+    if total_refills > 0:
+        lines.append(f"➕ *Mid-Month Refills Received:* {sym}{total_refills:,.2f}")
+        for r in refills:
+            lines.append(f"   • {r.date.strftime('%d %b')}: {sym}{r.amount:,.2f} ({r.funding_source} - {r.reason or 'Refill'})")
+    lines.append(f"💵 *Total Funds Available:* {sym}{total_received:,.2f}")
+    lines.append(f"📉 *Total Spent:* {sym}{total_spent:,.2f}")
+
+    if is_deficit:
+        lines.append(f"⚠️ *Current Deficit:* {sym}{deficit_or_surplus_amount:,.2f} (Funds needed)")
+    else:
+        lines.append(f"✅ *Remaining Balance:* {sym}{remaining_balance:,.2f}")
+
+    lines.append(f"────────────────────────")
+    lines.append(f"📊 *Top Category Breakdown:*")
+    for cat in category_summary[:5]:
+        lines.append(f"• {cat.category}: {sym}{cat.total_amount:,.2f} ({cat.percentage}%)")
+
+    if is_deficit:
+        parents_note = (
+            f"Dear Parents, here is my accounting breakdown for {formatted_month}. "
+            f"I have accounted for all expenditures ({sym}{total_spent:,.2f} total spent). "
+            f"Due to essential expenses, my balance has run out with a deficit of {sym}{deficit_or_surplus_amount:,.2f}. "
+            f"Kindly review the attached detailed breakdown for mid-month refill settlement."
+        )
+    else:
+        parents_note = (
+            f"Dear Parents, here is my expense summary for {formatted_month}. "
+            f"Out of the total {sym}{total_received:,.2f} received, I have spent {sym}{total_spent:,.2f} "
+            f"and saved {sym}{remaining_balance:,.2f}."
+        )
+
+    lines.append(f"────────────────────────")
+    lines.append(f"💬 _{parents_note}_")
+
+    whatsapp_share_text = "\n".join(lines)
+
+    return SettlementSummary(
+        month_year=target_month,
+        formatted_month=formatted_month,
+        currency_symbol=sym,
+        user_name=current_user.full_name,
+        initial_allowance=round(cycle.initial_allowance, 2),
+        total_refills=round(total_refills, 2),
+        total_received=round(total_received, 2),
+        total_spent=round(total_spent, 2),
+        remaining_balance=round(remaining_balance, 2),
+        is_deficit=is_deficit,
+        deficit_or_surplus_amount=round(deficit_or_surplus_amount, 2),
+        essential_spent=round(essential_spent, 2),
+        non_essential_spent=round(non_essential_spent, 2),
+        category_summary=category_summary,
+        itemized_expenses=[ExpenseResponse.model_validate(e) for e in expenses],
+        refill_history=[RefillLogResponse.model_validate(r) for r in refills],
+        whatsapp_share_text=whatsapp_share_text,
+        parents_note=parents_note
+    )
+
+
+# ==========================================
+# EXPORT TO CSV / EXCEL REPORT
+# ==========================================
+
+@app.get("/api/export/csv")
+def export_csv(
+    month_year: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_month = month_year or get_current_month_year()
+    try:
+        year_val, month_val = map(int, target_month.split("-"))
+    except ValueError:
+        year_val, month_val = datetime.utcnow().year, datetime.utcnow().month
+        target_month = f"{year_val:04d}-{month_val:02d}"
+
+    _, days_in_month = calendar.monthrange(year_val, month_val)
+    m_start = date(year_val, month_val, 1)
+    m_end = date(year_val, month_val, days_in_month)
+
+    expenses = db.query(Expense).filter(
+        Expense.user_id == current_user.id,
+        Expense.date >= m_start,
+        Expense.date <= m_end
+    ).order_by(asc(Expense.date), asc(Expense.id)).all()
+
+    output = io.StringIO()
+    # Write UTF-8 BOM for Microsoft Excel compatibility
+    output.write('\ufeff')
+    writer = csv.writer(output)
+
+    writer.writerow([
+        "Expense ID", "Date", "Category", f"Amount ({current_user.currency_code})",
+        "Payment Mode", "Description", "Receipt/Reference", "Essential"
+    ])
+
+    for exp in expenses:
+        writer.writerow([
+            exp.id,
+            exp.date.strftime("%Y-%m-%d"),
+            exp.category,
+            f"{exp.amount:.2f}",
+            exp.payment_mode,
+            exp.description,
+            exp.receipt_note or "",
+            "Yes" if exp.is_essential else "No"
+        ])
+
+    csv_data = output.getvalue()
+    filename = f"expense_report_{current_user.full_name.replace(' ', '_')}_{target_month}.csv"
+
+    return Response(
+        content=csv_data,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+# ==========================================
+# STATIC FILES & SPA FALLBACK
+# ==========================================
+
 import os
-import pathlib
-import stat
-import sys
-import tempfile
-from collections import OrderedDict
-from contextlib import contextmanager
-from typing import IO, Dict, Iterable, Iterator, Mapping, Optional, Tuple, Union
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-from .parser import Binding, parse_stream
-from .variables import parse_variables
+    @app.get("/")
+    def serve_index():
+        return FileResponse(os.path.join(static_dir, "index.html"))
 
-# A type alias for a string path to be used for the paths in this file.
-# These paths may flow to `open()` and `os.replace()`.
-StrPath = Union[str, "os.PathLike[str]"]
+    @app.get("/manifest.json")
+    def serve_manifest():
+        return FileResponse(os.path.join(static_dir, "manifest.json"))
 
-logger = logging.getLogger(__name__)
-
-
-def _load_dotenv_disabled() -> bool:
-    """
-    Determine if dotenv loading has been disabled.
-    """
-    if "PYTHON_DOTENV_DISABLED" not in os.environ:
-        return False
-    value = os.environ["PYTHON_DOTENV_DISABLED"].casefold()
-    return value in {"1", "true", "t", "yes", "y"}
-
-
-def with_warn_for_invalid_lines(mappings: Iterator[Binding]) -> Iterator[Binding]:
-    for mapping in mappings:
-        if mapping.error:
-            logger.warning(
-                "python-dotenv could not parse statement starting at line %s",
-                mapping.original.line,
-            )
-        yield mapping
-
-
-class DotEnv:
-    def __init__(
-        self,
-        dotenv_path: Optional[StrPath],
-        stream: Optional[IO[str]] = None,
-        verbose: bool = False,
-        encoding: Optional[str] = None,
-        interpolate: bool = True,
-        override: bool = True,
-    ) -> None:
-        self.dotenv_path: Optional[StrPath] = dotenv_path
-        self.stream: Optional[IO[str]] = stream
-        self._dict: Optional[Dict[str, Optional[str]]] = None
-        self.verbose: bool = verbose
-        self.encoding: Optional[str] = encoding
-        self.interpolate: bool = interpolate
-        self.override: bool = override
-
-    @contextmanager
-    def _get_stream(self) -> Iterator[IO[str]]:
-        if self.dotenv_path and _is_file_or_fifo(self.dotenv_path):
-            with open(self.dotenv_path, encoding=self.encoding) as stream:
-                yield stream
-        elif self.stream is not None:
-            yield self.stream
-        else:
-            if self.verbose:
-                logger.info(
-                    "python-dotenv could not find configuration file %s.",
-                    self.dotenv_path or ".env",
-                )
-            yield io.StringIO("")
-
-    def dict(self) -> Dict[str, Optional[str]]:
-        """Return dotenv as dict"""
-        if self._dict is not None:
-            return self._dict
-
-        raw_values = self.parse()
-
-        if self.interpolate:
-            self._dict = OrderedDict(
-                resolve_variables(raw_values, override=self.override)
-            )
-        else:
-            self._dict = OrderedDict(raw_values)
-
-        return self._dict
-
-    def parse(self) -> Iterator[Tuple[str, Optional[str]]]:
-        with self._get_stream() as stream:
-            for mapping in with_warn_for_invalid_lines(parse_stream(stream)):
-                if mapping.key is not None:
-                    yield mapping.key, mapping.value
-
-    def set_as_environment_variables(self) -> bool:
-        """
-        Load the current dotenv as system environment variable.
-        """
-        if not self.dict():
-            return False
-
-        for k, v in self.dict().items():
-            if k in os.environ and not self.override:
-                continue
-            if v is not None:
-                os.environ[k] = v
-
-        return True
-
-    def get(self, key: str) -> Optional[str]:
-        """ """
-        data = self.dict()
-
-        if key in data:
-            return data[key]
-
-        if self.verbose:
-            logger.warning("Key %s not found in %s.", key, self.dotenv_path)
-
-        return None
-
-
-def get_key(
-    dotenv_path: StrPath,
-    key_to_get: str,
-    encoding: Optional[str] = "utf-8",
-) -> Optional[str]:
-    """
-    Get the value of a given key from the given .env.
-
-    Returns `None` if the key isn't found or doesn't have a value.
-    """
-    return DotEnv(dotenv_path, verbose=True, encoding=encoding).get(key_to_get)
-
-
-@contextmanager
-def rewrite(
-    path: StrPath,
-    encoding: Optional[str],
-    follow_symlinks: bool = False,
-) -> Iterator[Tuple[IO[str], IO[str]]]:
-    if follow_symlinks:
-        path = os.path.realpath(path)
-
-    try:
-        source: IO[str] = open(path, encoding=encoding)
-        try:
-            path_stat = os.lstat(path)
-            original_mode: Optional[int] = (
-                stat.S_IMODE(path_stat.st_mode)
-                if stat.S_ISREG(path_stat.st_mode)
-                else None
-            )
-        except BaseException:
-            source.close()
-            raise
-    except FileNotFoundError:
-        source = io.StringIO("")
-        original_mode = None
-
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding=encoding,
-        delete=False,
-        prefix=".tmp_",
-        dir=os.path.dirname(os.path.abspath(path)),
-    ) as dest:
-        dest_path = pathlib.Path(dest.name)
-        error = None
-
-        try:
-            with source:
-                yield (source, dest)
-        except BaseException as err:
-            error = err
-
-    if error is None:
-        try:
-            if original_mode is not None:
-                os.chmod(dest_path, original_mode)
-
-            os.replace(dest_path, path)
-        except BaseException:
-            dest_path.unlink(missing_ok=True)
-            raise
-    else:
-        dest_path.unlink(missing_ok=True)
-        raise error from None
-
-
-def set_key(
-    dotenv_path: StrPath,
-    key_to_set: str,
-    value_to_set: str,
-    quote_mode: str = "always",
-    export: bool = False,
-    encoding: Optional[str] = "utf-8",
-    follow_symlinks: bool = False,
-) -> Tuple[Optional[bool], str, str]:
-    """
-    Adds or Updates a key/value to the given .env
-
-    The target .env file is created if it doesn't exist.
-
-    This function doesn't follow symlinks by default, to avoid accidentally
-    modifying a file at a potentially untrusted path. If you don't need this
-    protection and need symlinks to be followed, use `follow_symlinks`.
-    """
-    if quote_mode not in ("always", "auto", "never"):
-        raise ValueError(f"Unknown quote_mode: {quote_mode}")
-
-    quote = quote_mode == "always" or (
-        quote_mode == "auto" and not value_to_set.isalnum()
-    )
-
-    if quote:
-        # The single-quoted-value parser decodes `\\` and `\'`, so both have to
-        # be escaped here for the value to survive a write/read round-trip.
-        # Backslashes first, otherwise the backslash added by the quote
-        # escaping would be escaped in turn.
-        escaped = value_to_set.replace("\\", "\\\\").replace("'", "\\'")
-        value_out = f"'{escaped}'"
-    else:
-        value_out = value_to_set
-    if export:
-        line_out = f"export {key_to_set}={value_out}\n"
-    else:
-        line_out = f"{key_to_set}={value_out}\n"
-
-    with rewrite(dotenv_path, encoding=encoding, follow_symlinks=follow_symlinks) as (
-        source,
-        dest,
-    ):
-        replaced = False
-        missing_newline = False
-        for mapping in with_warn_for_invalid_lines(parse_stream(source)):
-            if mapping.key == key_to_set:
-                dest.write(line_out)
-                replaced = True
-            else:
-                dest.write(mapping.original.string)
-                missing_newline = not mapping.original.string.endswith("\n")
-        if not replaced:
-            if missing_newline:
-                dest.write("\n")
-            dest.write(line_out)
-
-    return True, key_to_set, value_to_set
-
-
-def unset_key(
-    dotenv_path: StrPath,
-    key_to_unset: str,
-    quote_mode: str = "always",
-    encoding: Optional[str] = "utf-8",
-    follow_symlinks: bool = False,
-) -> Tuple[Optional[bool], str]:
-    """
-    Removes a given key from the given `.env` file.
-
-    If the .env path given doesn't exist, fails.
-    If the given key doesn't exist in the .env, fails.
-
-    This function doesn't follow symlinks by default, to avoid accidentally
-    modifying a file at a potentially untrusted path. If you don't need this
-    protection and need symlinks to be followed, use `follow_symlinks`.
-    """
-    if not os.path.exists(dotenv_path):
-        logger.warning("Can't delete from %s - it doesn't exist.", dotenv_path)
-        return None, key_to_unset
-
-    removed = False
-    with rewrite(dotenv_path, encoding=encoding, follow_symlinks=follow_symlinks) as (
-        source,
-        dest,
-    ):
-        for mapping in with_warn_for_invalid_lines(parse_stream(source)):
-            if mapping.key == key_to_unset:
-                removed = True
-            else:
-                dest.write(mapping.original.string)
-
-    if not removed:
-        logger.warning(
-            "Key %s not removed from %s - key doesn't exist.", key_to_unset, dotenv_path
+    @app.get("/sw.js")
+    def serve_service_worker():
+        return FileResponse(
+            os.path.join(static_dir, "sw.js"),
+            media_type="application/javascript"
         )
-        return None, key_to_unset
-
-    return removed, key_to_unset
-
-
-def resolve_variables(
-    values: Iterable[Tuple[str, Optional[str]]],
-    override: bool,
-) -> Mapping[str, Optional[str]]:
-    new_values: Dict[str, Optional[str]] = {}
-
-    for name, value in values:
-        if value is None:
-            result = None
-        else:
-            atoms = parse_variables(value)
-            env: Dict[str, Optional[str]] = {}
-            if override:
-                env.update(os.environ)  # type: ignore
-                env.update(new_values)
-            else:
-                env.update(new_values)
-                env.update(os.environ)  # type: ignore
-            result = "".join(atom.resolve(env) for atom in atoms)
-
-        new_values[name] = result
-
-    return new_values
-
-
-def _walk_to_root(path: str) -> Iterator[str]:
-    """
-    Yield directories starting from the given directory up to the root
-    """
-    if not os.path.exists(path):
-        raise IOError("Starting path not found")
-
-    if os.path.isfile(path):
-        path = os.path.dirname(path)
-
-    last_dir = None
-    current_dir = os.path.abspath(path)
-    while last_dir != current_dir:
-        yield current_dir
-        parent_dir = os.path.abspath(os.path.join(current_dir, os.path.pardir))
-        last_dir, current_dir = current_dir, parent_dir
-
-
-def find_dotenv(
-    filename: str = ".env",
-    raise_error_if_not_found: bool = False,
-    usecwd: bool = False,
-) -> str:
-    """
-    Search in increasingly higher folders for the given file
-
-    Returns path to the file if found, or an empty string otherwise
-    """
-
-    def _is_interactive():
-        """Decide whether this is running in a REPL or IPython notebook"""
-        if hasattr(sys, "ps1") or hasattr(sys, "ps2"):
-            return True
-        try:
-            main = __import__("__main__", None, None, fromlist=["__file__"])
-        except ModuleNotFoundError:
-            return False
-        return not hasattr(main, "__file__")
-
-    def _is_debugger():
-        return sys.gettrace() is not None
-
-    if usecwd or _is_interactive() or _is_debugger() or getattr(sys, "frozen", False):
-        # Should work without __file__, e.g. in REPL or IPython notebook.
-        path = os.getcwd()
-    else:
-        # will work for .py files
-        frame = sys._getframe()
-        current_file = __file__
-
-        while frame.f_code.co_filename == current_file or not os.path.exists(
-            frame.f_code.co_filename
-        ):
-            assert frame.f_back is not None
-            frame = frame.f_back
-        frame_filename = frame.f_code.co_filename
-        path = os.path.dirname(os.path.abspath(frame_filename))
-
-    for dirname in _walk_to_root(path):
-        check_path = os.path.join(dirname, filename)
-        if _is_file_or_fifo(check_path):
-            return check_path
-
-    if raise_error_if_not_found:
-        raise IOError("File not found")
-
-    return ""
-
-
-def load_dotenv(
-    dotenv_path: Optional[StrPath] = None,
-    stream: Optional[IO[str]] = None,
-    verbose: bool = False,
-    override: bool = False,
-    interpolate: bool = True,
-    encoding: Optional[str] = "utf-8",
-) -> bool:
-    """Parse a .env file and then load all the variables found as environment variables.
-
-    Parameters:
-        dotenv_path: Absolute or relative path to .env file.
-        stream: Text stream (such as `io.StringIO`) with .env content, used if
-            `dotenv_path` is `None`.
-        verbose: Whether to output a warning the .env file is missing.
-        override: Whether to override the system environment variables with the variables
-            from the `.env` file.
-        interpolate: Whether to interpolate variables using POSIX variable expansion.
-        encoding: Encoding to be used to read the file.
-    Returns:
-        Bool: True if at least one environment variable is set else False
-
-    If both `dotenv_path` and `stream` are `None`, `find_dotenv()` is used to find the
-    .env file with its default parameters. If you need to change the default parameters
-    of `find_dotenv()`, you can explicitly call `find_dotenv()` and pass the result
-    to this function as `dotenv_path`.
-
-    If the environment variable `PYTHON_DOTENV_DISABLED` is set to a truthy value,
-    .env loading is disabled.
-    """
-    if _load_dotenv_disabled():
-        logger.debug(
-            "python-dotenv: .env loading disabled by PYTHON_DOTENV_DISABLED environment variable"
-        )
-        return False
-
-    if dotenv_path is None and stream is None:
-        dotenv_path = find_dotenv()
-
-    dotenv = DotEnv(
-        dotenv_path=dotenv_path,
-        stream=stream,
-        verbose=verbose,
-        interpolate=interpolate,
-        override=override,
-        encoding=encoding,
-    )
-    return dotenv.set_as_environment_variables()
-
-
-def dotenv_values(
-    dotenv_path: Optional[StrPath] = None,
-    stream: Optional[IO[str]] = None,
-    verbose: bool = False,
-    interpolate: bool = True,
-    encoding: Optional[str] = "utf-8",
-) -> Dict[str, Optional[str]]:
-    """
-    Parse a .env file and return its content as a dict.
-
-    The returned dict will have `None` values for keys without values in the .env file.
-    For example, `foo=bar` results in `{"foo": "bar"}` whereas `foo` alone results in
-    `{"foo": None}`
-
-    Parameters:
-        dotenv_path: Absolute or relative path to the .env file.
-        stream: `StringIO` object with .env content, used if `dotenv_path` is `None`.
-        verbose: Whether to output a warning if the .env file is missing.
-        interpolate: Whether to interpolate variables using POSIX variable expansion.
-        encoding: Encoding to be used to read the file.
-
-    If both `dotenv_path` and `stream` are `None`, `find_dotenv()` is used to find the
-    .env file.
-    """
-    if dotenv_path is None and stream is None:
-        dotenv_path = find_dotenv()
-
-    return DotEnv(
-        dotenv_path=dotenv_path,
-        stream=stream,
-        verbose=verbose,
-        interpolate=interpolate,
-        override=True,
-        encoding=encoding,
-    ).dict()
-
-
-def _is_file_or_fifo(path: StrPath) -> bool:
-    """
-    Return True if `path` exists and is either a regular file or a FIFO.
-    """
-    if os.path.isfile(path):
-        return True
-
-    try:
-        st = os.stat(path)
-    except (FileNotFoundError, OSError):
-        return False
-
-    return stat.S_ISFIFO(st.st_mode)
