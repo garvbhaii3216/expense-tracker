@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Personal Expense & Allowance Tracker</title>
+  <meta name="description" content="Track monthly family allowances, mid-month refills, daily expenses, and transparent parent settlement reports.">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234f46e5'/><text x='50' y='65' font-size='50' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>₹</text></svg>">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              800: '#3730a3',
+              900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 antialiased flex flex-col transition-colors duration-200">
+
+  <!-- ======================================================== -->
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <!-- ======================================================== -->
+  <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none no-print"></div>
+
+  <!-- ======================================================== -->
+  <!-- AUTH VIEW (LOGIN / REGISTER) -->
+  <!-- ======================================================== -->
+  <div id="authScreen" class="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-indigo-50 via-slate-50 to-emerald-50 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950">
+    <div class="max-w-md w-full space-y-6 bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700/60 transition-all">
+      
+      <!-- Brand Header -->
+      <div class="text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 mb-3">
+          <i data-lucide="wallet" class="w-8 h-8"></i>
+        </div>
+        <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">Expense & Allowance Tracker</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage monthly family allowances, mid-month top-ups, and day-to-day spending with ease</p>
+      </div>
+
+      <!-- Auth Toggle Tabs -->
+      <div class="flex p-1 bg-slate-100 dark:bg-slate-700/70 rounded-xl">
+        <button id="tabLoginBtn" type="button" class="w-1/2 py-2 text-sm font-semibold rounded-lg transition-all bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm">
+          Sign In
+        </button>
+        <button id="tabRegisterBtn" type="button" class="w-1/2 py-2 text-sm font-semibold rounded-lg transition-all text-slate-600 dark:text-slate-300 hover:text-slate-900">
+          Create Account
+        </button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Email or Mobile Number</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+              <i data-lucide="user" class="w-4 h-4"></i>
+            </span>
+            <input id="loginUsername" type="text" required placeholder="name@example.com or +919876543210"
+              class="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Password</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+              <i data-lucide="lock" class="w-4 h-4"></i>
+            </span>
+            <input id="loginPassword" type="password" required placeholder="••••••••"
+              class="w-full pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+            <button type="button" onclick="togglePasswordVisibility('loginPassword', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">
+              <i data-lucide="eye" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" id="loginSubmitBtn"
+          class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 active-press">
+          <span>Sign In</span>
+          <i data-lucide="arrow-right" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Quick Demo Fill -->
+        <div class="pt-2">
+          <button type="button" id="demoFillBtn" class="w-full py-2 px-3 border border-dashed border-indigo-300 dark:border-indigo-700/60 rounded-xl text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition flex items-center justify-center gap-1.5">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span>Fill Demo Student Account</span>
+          </button>
+        </div>
+      </form>
+
+      <!-- Register Form -->
+      <form id="registerForm" class="space-y-4 hidden">
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Full Name</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+              <i data-lucide="smile" class="w-4 h-4"></i>
+            </span>
+            <input id="regFullName" type="text" required placeholder="e.g. Aarav Sharma"
+              class="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Email Address</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+              <i data-lucide="mail" class="w-4 h-4"></i>
+            </span>
+            <input id="regEmail" type="email" required placeholder="aarav@example.com"
+              class="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Mobile Number (Optional)</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+              <i data-lucide="phone" class="w-4 h-4"></i>
+            </span>
+            <input id="regPhone" type="tel" placeholder="+91 98765 43210"
+              class="w-full pl-10 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Currency</label>
+            <select id="regCurrency" class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+              <option value="₹:INR">₹ INR (Indian Rupee)</option>
+              <option value="$:USD">$ USD (US Dollar)</option>
+              <option value="€:EUR">€ EUR (Euro)</option>
+              <option value="£:GBP">£ GBP (British Pound)</option>
+              <option value="AED:AED">AED (UAE Dirham)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Password</label>
+            <div class="relative">
+              <input id="regPassword" type="password" required minlength="6" placeholder="Min 6 chars"
+                class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" id="regSubmitBtn"
+          class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 active-press">
+          <span>Create My Account</span>
+          <i data-lucide="check" class="w-4 h-4"></i>
+        </button>
+      </form>
+
+      <!-- Database Isolation Note -->
+      <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 rounded-xl text-xs text-slate-500 dark:text-slate-400">
+        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500 flex-shrink-0"></i>
+        <span>Each account has its own isolated, secure database. Zero data overlap between users.</span>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- MAIN APPLICATION VIEW -->
+  <!-- ======================================================== -->
+  <div id="appScreen" class="hidden flex-1 flex flex-col md:flex-row h-full overflow-hidden">
+
+    <!-- DESKTOP SIDEBAR -->
+    <aside class="hidden md:flex flex-col w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/80 p-4 justify-between select-none">
+      <div class="space-y-6">
+        <!-- Logo -->
+        <div class="flex items-center gap-3 px-2 py-1">
+          <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-600/30">
+            <i data-lucide="wallet" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="font-bold text-slate-900 dark:text-white leading-tight">ExpenseTrack</div>
+            <div class="text-[11px] font-medium text-slate-400">Family & Allowance</div>
+          </div>
+        </div>
+
+        <!-- Navigation Menu -->
+        <nav class="space-y-1">
+          <button onclick="switchTab('dashboard')" id="nav-dashboard"
+            class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50">
+            <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+            <span>Dashboard</span>
+          </button>
+
+          <button onclick="switchTab('expenses')" id="nav-expenses"
+            class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50">
+            <i data-lucide="receipt" class="w-4 h-4"></i>
+            <span>Expenses</span>
+          </button>
+
+          <button onclick="switchTab('refills')" id="nav-refills"
+            class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span>Allowance & Refills</span>
+          </button>
+
+          <button onclick="switchTab('settlement')" id="nav-settlement"
+            class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+            <span>Parent Settlement</span>
+          </button>
+
+          <button onclick="switchTab('analytics')" id="nav-analytics"
+            class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50">
+            <i data-lucide="pie-chart" class="w-4 h-4"></i>
+            <span>Visual Analytics</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- User Profile Card in Sidebar -->
+      <div class="pt-4 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+        <div class="flex items-center justify-between px-2">
+          <div class="flex items-center gap-2.5">
+            <div id="userAvatar" class="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-emerald-400 text-white font-bold text-xs flex items-center justify-center">
+              A
+            </div>
+            <div class="overflow-hidden">
+              <div id="userNameDisplay" class="text-xs font-bold text-slate-900 dark:text-white truncate">User</div>
+              <div id="userEmailDisplay" class="text-[10px] text-slate-400 truncate">user@mail</div>
+            </div>
+          </div>
+          <button onclick="toggleDarkMode()" title="Toggle Theme" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <i data-lucide="moon" id="themeIcon" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <button onclick="logout()" class="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 rounded-xl hover:bg-rose-100 transition">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN BODY CONTENT -->
+    <div class="flex-1 flex flex-col h-full overflow-hidden">
+      
+      <!-- TOP APP BAR -->
+      <header class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700/80 px-4 py-3 flex items-center justify-between z-10">
+        
+        <!-- Mobile Logo & Title -->
+        <div class="flex items-center gap-3">
+          <div class="md:hidden flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-600 text-white shadow-sm">
+            <i data-lucide="wallet" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h2 id="pageTitle" class="text-lg font-bold text-slate-900 dark:text-white leading-tight">Dashboard</h2>
+            <p id="cycleHeaderNote" class="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Monthly Allowance & Real-time Expenses</p>
+          </div>
+        </div>
+
+        <!-- Month Switcher & Quick Action Buttons -->
+        <div class="flex items-center gap-2 sm:gap-3">
+          <!-- Month Selector -->
+          <div class="flex items-center bg-slate-100 dark:bg-slate-700/80 rounded-xl p-1 text-xs font-medium">
+            <button onclick="prevMonth()" title="Previous Month" class="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-white rounded-lg">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <span id="currentMonthDisplay" class="px-2 font-semibold text-slate-800 dark:text-slate-100 min-w-[75px] text-center">Oct 2026</span>
+            <button onclick="nextMonth()" title="Next Month" class="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-white rounded-lg">
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Add Expense Button (Desktop header) -->
+          <button onclick="openAddExpenseModal()" class="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-sm transition active-press">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>Add Expense</span>
+          </button>
+
+          <!-- Mobile Theme Toggle -->
+          <button onclick="toggleDarkMode()" class="md:hidden p-2 rounded-xl bg-slate-100 dark:bg-slate-700/80 text-slate-500 dark:text-slate-300">
+            <i data-lucide="moon" class="w-4 h-4"></i>
+          </button>
+
+          <!-- Mobile Logout -->
+          <button onclick="logout()" class="md:hidden p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400" title="Logout">
+            <i data-lucide="log-out" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- SCROLLABLE TAB VIEWS CONTAINER -->
+      <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 safe-bottom-padding">
+
+        <!-- ==================================================== -->
+        <!-- TAB 1: DASHBOARD -->
+        <!-- ==================================================== -->
+        <section id="tabContent-dashboard" class="space-y-6">
+
+          <!-- Zero Allowance Onboarding Banner -->
+          <div id="zeroAllowanceBanner" class="hidden p-4 bg-gradient-to-r from-indigo-500 via-indigo-600 to-emerald-500 text-white rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 rounded-xl bg-white/20 backdrop-blur-md flex-shrink-0">
+                <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+              </div>
+              <div>
+                <h4 class="text-sm font-bold leading-snug">Welcome! Your starting monthly allowance is currently ₹0.00</h4>
+                <p class="text-xs text-indigo-100">Set your monthly allowance received from family to start tracking daily balance.</p>
+              </div>
+            </div>
+            <button onclick="openSetAllowanceModal()" class="px-4 py-2 bg-white text-indigo-700 hover:bg-indigo-50 font-bold rounded-xl text-xs shadow transition active-press whitespace-nowrap self-start sm:self-auto">
+              Set Starting Allowance
+            </button>
+          </div>
+
+          <!-- TOP KPI STATS GRID -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+            
+            <!-- Card 1: Available Total Budget -->
+            <div class="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm card-hover">
+              <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Total Allowance</span>
+                <span class="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                  <i data-lucide="piggy-bank" class="w-4 h-4"></i>
+                </span>
+              </div>
+              <div id="statTotalBudget" class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">₹0.00</div>
+              <div class="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
+                <span id="statRefillNotice">Base ₹0.00</span>
+                <button onclick="openSetAllowanceModal()" class="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline ml-auto">Edit</button>
+              </div>
+            </div>
+
+            <!-- Card 2: Total Spent -->
+            <div class="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm card-hover">
+              <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Total Spent</span>
+                <span class="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
+                  <i data-lucide="trending-down" class="w-4 h-4"></i>
+                </span>
+              </div>
+              <div id="statTotalSpent" class="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400">₹0.00</div>
+              <div class="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                <span id="statSpentCount">0 expenses</span>
+                <span id="statBurnPercent">0% burned</span>
+              </div>
+            </div>
+
+            <!-- Card 3: Dynamic Remaining Balance -->
+            <div id="remainingBalanceCard" class="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm card-hover">
+              <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Remaining Balance</span>
+                <span id="balanceIconContainer" class="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                  <i data-lucide="wallet-cards" class="w-4 h-4"></i>
+                </span>
+              </div>
+              <div id="statRemainingBalance" class="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400">₹0.00</div>
+              <div class="mt-1 flex items-center justify-between text-[11px]">
+                <span id="balanceStatusBadge" class="font-bold text-emerald-600 dark:text-emerald-400">Surplus Safe</span>
+                <button onclick="openRefillModal()" class="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline">+ Refill</button>
+              </div>
+            </div>
+
+            <!-- Card 4: Daily Safe Budget -->
+            <div class="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm card-hover">
+              <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Daily Safe Spend</span>
+                <span class="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                  <i data-lucide="calendar" class="w-4 h-4"></i>
+                </span>
+              </div>
+              <div id="statDailySafe" class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">₹0.00/day</div>
+              <div class="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                <span id="statDaysRemaining">0 days remaining</span>
+                <span id="statSpentTodayBadge">₹0 today</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- ALLOWANCE BURN-DOWN PROGRESS BAR -->
+          <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Allowance Consumption Gauge</h3>
+                <p id="burnGaugeDescription" class="text-xs text-slate-500">Track how quickly funds are being utilized this month</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="burnRateText" class="text-xs font-extrabold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
+                  0% Used
+                </span>
+              </div>
+            </div>
+
+            <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-3.5 overflow-hidden p-0.5">
+              <div id="burnProgressBar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span id="burnGaugeBase">Starting: ₹0.00</span>
+              <span id="burnGaugeRefill">Refills: +₹0.00</span>
+              <span id="burnGaugeSpent">Spent: -₹0.00</span>
+              <span id="burnGaugeLeft" class="font-bold text-slate-900 dark:text-white">Net: ₹0.00</span>
+            </div>
+          </div>
+
+          <!-- QUICK ACTIONS ROW -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <button onclick="openAddExpenseModal()" class="flex items-center justify-center gap-2 p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs shadow-md shadow-indigo-600/20 active-press">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              <span>Quick Add Expense</span>
+            </button>
+            <button onclick="openRefillModal()" class="flex items-center justify-center gap-2 p-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-xs shadow-md shadow-emerald-600/20 active-press">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span>Add Mid-Month Refill</span>
+            </button>
+            <button onclick="openSettlementModal()" class="flex items-center justify-center gap-2 p-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-semibold text-xs shadow-md shadow-amber-500/20 active-press">
+              <i data-lucide="share-2" class="w-4 h-4"></i>
+              <span>Parent Breakdown Report</span>
+            </button>
+            <button onclick="exportCSV()" class="flex items-center justify-center gap-2 p-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 rounded-xl font-semibold text-xs active-press">
+              <i data-lucide="download" class="w-4 h-4"></i>
+              <span>Export CSV</span>
+            </button>
+          </div>
+
+          <!-- CHARTS SECTION -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <!-- Category Spend Pie Chart -->
+            <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm flex flex-col">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <i data-lucide="pie-chart" class="w-4 h-4 text-indigo-500"></i>
+                  <span>Expenses by Category</span>
+                </h3>
+              </div>
+              <div class="relative flex-1 min-h-[240px] flex items-center justify-center">
+                <canvas id="categoryDonutChart"></canvas>
+                <div id="noDataCategory" class="hidden absolute text-xs text-slate-400">No expenses recorded yet</div>
+              </div>
+            </div>
+
+            <!-- Daily Spend Bar Chart -->
+            <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm flex flex-col">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <i data-lucide="bar-chart-3" class="w-4 h-4 text-emerald-500"></i>
+                  <span>Daily Spending Timeline</span>
+                </h3>
+              </div>
+              <div class="relative flex-1 min-h-[240px] flex items-center justify-center">
+                <canvas id="dailyBarChart"></canvas>
+                <div id="noDataDaily" class="hidden absolute text-xs text-slate-400">No daily expenditures recorded yet</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RECENT TRANSACTIONS TABLE / CARDS -->
+          <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm overflow-hidden">
+            <div class="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Recent Expenses</h3>
+                <p class="text-xs text-slate-400">Latest day-to-day expenditures</p>
+              </div>
+              <button onclick="switchTab('expenses')" class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+                View All
+              </button>
+            </div>
+
+            <div id="recentExpensesList" class="divide-y divide-slate-100 dark:divide-slate-700/50">
+              <!-- Dynamically rendered -->
+            </div>
+          </div>
+
+        </section>
+
+
+        <!-- ==================================================== -->
+        <!-- TAB 2: EXPENSES (ALL TRANSACTIONS) -->
+        <!-- ==================================================== -->
+        <section id="tabContent-expenses" class="space-y-5 hidden">
+          
+          <!-- Filters & Action Bar -->
+          <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm space-y-3">
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <!-- Search Input -->
+              <div class="relative flex-1">
+                <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                  <i data-lucide="search" class="w-4 h-4"></i>
+                </span>
+                <input id="expenseSearchInput" type="text" oninput="debounceFilterExpenses()" placeholder="Search description, notes..."
+                  class="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white">
+              </div>
+
+              <!-- Sorting & Export -->
+              <div class="flex items-center gap-2">
+                <select id="expenseSortSelect" onchange="loadExpenses()"
+                  class="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200">
+                  <option value="date_desc">Newest First</option>
+                  <option value="date_asc">Oldest First</option>
+                  <option value="amount_desc">Highest Amount</option>
+                  <option value="amount_asc">Lowest Amount</option>
+                </select>
+
+                <button onclick="exportCSV()" class="p-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-200 text-xs font-semibold flex items-center gap-1.5" title="Download Excel/CSV">
+                  <i data-lucide="download" class="w-4 h-4"></i>
+                  <span class="hidden sm:inline">CSV</span>
+                </button>
+
+                <button onclick="openAddExpenseModal()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm active-press">
+                  <i data-lucide="plus" class="w-4 h-4"></i>
+                  <span>Add</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Category Filter Chips -->
+            <div id="categoryFilterChips" class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+              <!-- Dynamically populated chips -->
+            </div>
+          </div>
+
+          <!-- Expense List / Table -->
+          <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm overflow-hidden">
+            <div class="p-4 border-b border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500">
+              <span id="filteredCountText">Showing 0 transactions</span>
+              <span id="filteredTotalText" class="font-bold text-slate-900 dark:text-white">Total: ₹0.00</span>
+            </div>
+
+            <div id="allExpensesList" class="divide-y divide-slate-100 dark:divide-slate-700/50">
+              <!-- Dynamically rendered -->
+            </div>
+          </div>
+
+        </section>
+
+
+        <!-- ==================================================== -->
+        <!-- TAB 3: ALLOWANCE & MID-MONTH REFILLS -->
+        <!-- ==================================================== -->
+        <section id="tabContent-refills" class="space-y-6 hidden">
+          
+          <!-- Month Cycle Allowance Configuration Card -->
+          <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div>
+                <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 text-xs font-bold mb-2">
+                  <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                  <span id="cycleSettingsMonthBadge">October 2026</span>
+                </div>
+                <h3 class="text-base font-bold text-slate-900 dark:text-white">Starting Monthly Allowance</h3>
+                <p class="text-xs text-slate-500">The primary fund deposited by parents or family at the beginning of this month</p>
+              </div>
+
+              <button onclick="openSetAllowanceModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm active-press self-start sm:self-auto">
+                <i data-lucide="edit-3" class="w-3.5 h-3.5 inline mr-1"></i>
+                <span>Update Starting Allowance</span>
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+              <div>
+                <span class="text-xs text-slate-400">Starting Amount</span>
+                <div id="cycleInitialDisplay" class="text-xl font-black text-slate-900 dark:text-white">₹0.00</div>
+              </div>
+              <div>
+                <span class="text-xs text-slate-400">Funding Source</span>
+                <div id="cycleSourceDisplay" class="text-sm font-semibold text-slate-800 dark:text-slate-200">Parents</div>
+              </div>
+              <div>
+                <span class="text-xs text-slate-400">Cycle Notes</span>
+                <div id="cycleNotesDisplay" class="text-xs text-slate-500 italic">No notes added</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Mid-Month Refill / Top-up Section -->
+          <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <i data-lucide="refresh-cw" class="w-4 h-4 text-emerald-500"></i>
+                  <span>Mid-Month Refills & Family Top-ups</span>
+                </h3>
+                <p class="text-xs text-slate-500">Log additional funds sent mid-month to replenish running out balances</p>
+              </div>
+
+              <button onclick="openRefillModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm active-press self-start sm:self-auto">
+                <i data-lucide="plus" class="w-3.5 h-3.5 inline mr-1"></i>
+                <span>Add Mid-Month Refill</span>
+              </button>
+            </div>
+
+            <!-- Refills List -->
+            <div id="refillsListContainer" class="divide-y divide-slate-100 dark:divide-slate-700/60">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Explanation Info Card -->
+          <div class="p-4 bg-indigo-50 dark:bg-indigo-950/40 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 flex items-start gap-3">
+            <i data-lucide="info" class="w-5 h-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5"></i>
+            <div class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              <strong class="font-semibold text-slate-900 dark:text-white">Why log mid-month refills?</strong> When unexpected expenditures occur (books, medical, hostel expenses), parents often send additional funds. Logging refills keeps your starting monthly allowance record intact while instantly updating your available balance and parent settlement breakdown.
+            </div>
+          </div>
+
+        </section>
+
+
+        <!-- ==================================================== -->
+        <!-- TAB 4: PARENT SETTLEMENT & BREAKDOWN REPORT -->
+        <!-- ==================================================== -->
+        <section id="tabContent-settlement" class="space-y-6 hidden">
+
+          <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div>
+                <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 text-xs font-bold mb-2">
+                  <i data-lucide="file-check" class="w-3.5 h-3.5"></i>
+                  <span>Family Accounting & Settlement</span>
+                </div>
+                <h3 class="text-lg font-bold text-slate-900 dark:text-white">Parent Expense Breakdown Statement</h3>
+                <p class="text-xs text-slate-500">Generate a 100% transparent summary to share with parents via WhatsApp or print as PDF</p>
+              </div>
+
+              <!-- Share Buttons -->
+              <div class="flex flex-wrap items-center gap-2">
+                <button onclick="shareWhatsApp()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm active-press">
+                  <i data-lucide="message-circle" class="w-4 h-4"></i>
+                  <span>Share on WhatsApp</span>
+                </button>
+                <button onclick="copySettlementText()" class="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-slate-100 rounded-xl text-xs font-semibold flex items-center gap-1.5 active-press">
+                  <i data-lucide="copy" class="w-4 h-4"></i>
+                  <span>Copy Text</span>
+                </button>
+                <button onclick="window.print()" class="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-slate-100 rounded-xl text-xs font-semibold flex items-center gap-1.5 active-press">
+                  <i data-lucide="printer" class="w-4 h-4"></i>
+                  <span>Print / PDF</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Settlement Statement Preview Sheet -->
+            <div id="settlementSheet" class="p-6 bg-slate-50 dark:bg-slate-900/70 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-6">
+              
+              <!-- Report Header -->
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700 gap-2">
+                <div>
+                  <h4 class="text-base font-extrabold text-slate-900 dark:text-white">Monthly Allowance Settlement Statement</h4>
+                  <p id="settleUserMonth" class="text-xs text-slate-500">Student: Aarav Sharma • Period: October 2026</p>
+                </div>
+                <div id="settleStatusBadge" class="self-start sm:self-auto px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400">
+                  Surplus Safe
+                </div>
+              </div>
+
+              <!-- Accounting Overview Numbers -->
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700/60">
+                  <span class="text-[10px] text-slate-400 uppercase font-semibold">Base Allowance</span>
+                  <div id="settleBase" class="text-sm sm:text-base font-bold text-slate-900 dark:text-white">₹0.00</div>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700/60">
+                  <span class="text-[10px] text-slate-400 uppercase font-semibold">Mid-Month Refills</span>
+                  <div id="settleRefills" class="text-sm sm:text-base font-bold text-emerald-600 dark:text-emerald-400">+₹0.00</div>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700/60">
+                  <span class="text-[10px] text-slate-400 uppercase font-semibold">Total Spent</span>
+                  <div id="settleSpent" class="text-sm sm:text-base font-bold text-rose-600 dark:text-rose-400">-₹0.00</div>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700/60">
+                  <span class="text-[10px] text-slate-400 uppercase font-semibold">Net Balance</span>
+                  <div id="settleNet" class="text-sm sm:text-base font-bold text-slate-900 dark:text-white">₹0.00</div>
+                </div>
+              </div>
+
+              <!-- Note to Parents Box -->
+              <div class="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300">
+                <div class="font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-1.5">
+                  <i data-lucide="message-square" class="w-3.5 h-3.5 text-indigo-500"></i>
+                  <span>Message for Parents</span>
+                </div>
+                <p id="settleParentsNote" class="italic leading-relaxed"></p>
+              </div>
+
+              <!-- Category Breakdown Table -->
+              <div>
+                <h5 class="text-xs font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wider">Spending by Category</h5>
+                <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-100 dark:bg-slate-700/50 text-slate-500 uppercase font-semibold">
+                      <tr>
+                        <th class="p-2.5">Category</th>
+                        <th class="p-2.5 text-center">Transactions</th>
+                        <th class="p-2.5 text-right">Amount</th>
+                        <th class="p-2.5 text-right">% of Total</th>
+                      </tr>
+                    </thead>
+                    <tbody id="settleCategoryTbody" class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Itemized Transactions Table -->
+              <div>
+                <h5 class="text-xs font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wider">Complete Itemized Expense History</h5>
+                <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-100 dark:bg-slate-700/50 text-slate-500 uppercase font-semibold">
+                      <tr>
+                        <th class="p-2.5">Date</th>
+                        <th class="p-2.5">Category</th>
+                        <th class="p-2.5">Description & Note</th>
+                        <th class="p-2.5">Mode</th>
+                        <th class="p-2.5 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody id="settleItemizedTbody" class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </section>
+
+
+        <!-- ==================================================== -->
+        <!-- TAB 5: VISUAL ANALYTICS -->
+        <!-- ==================================================== -->
+        <section id="tabContent-analytics" class="space-y-6 hidden">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <!-- Full size Category Bar Breakdown -->
+            <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white mb-4">Category Share Ranking</h3>
+              <div id="analyticsCategoryBars" class="space-y-3">
+                <!-- Dynamically populated progress bars -->
+              </div>
+            </div>
+
+            <!-- Spending Insights & Habits -->
+            <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/70 shadow-sm space-y-4">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Spending Health & Insights</h3>
+              
+              <div class="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-xl space-y-2">
+                <span class="text-xs font-semibold text-slate-500">Daily Average Spent</span>
+                <div id="statDailyAverage" class="text-xl font-bold text-slate-900 dark:text-white">₹0.00 / day</div>
+                <p class="text-[11px] text-slate-400">Calculated over elapsed days this cycle</p>
+              </div>
+
+              <div class="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-xl space-y-2">
+                <span class="text-xs font-semibold text-slate-500">Essential vs Discretionary Spend</span>
+                <div class="flex items-center gap-2">
+                  <div class="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden flex">
+                    <div id="barEssential" class="bg-emerald-500 h-full" style="width: 50%"></div>
+                    <div id="barNonEssential" class="bg-amber-500 h-full" style="width: 50%"></div>
+                  </div>
+                </div>
+                <div class="flex justify-between text-[11px]">
+                  <span id="labelEssential" class="text-emerald-600 dark:text-emerald-400 font-semibold">Essential: ₹0</span>
+                  <span id="labelNonEssential" class="text-amber-600 dark:text-amber-400 font-semibold">Discretionary: ₹0</span>
+                </div>
+              </div>
+
+              <!-- Database Isolation Status -->
+              <div class="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2.5">
+                <i data-lucide="database" class="w-4 h-4 flex-shrink-0"></i>
+                <span>Database session verified. All expense logs and allowance cycles are securely isolated to your account ID.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- ==================================================== -->
+      <!-- MOBILE BOTTOM NAVIGATION (Hidden on Desktop) -->
+      <!-- ==================================================== -->
+      <nav id="bottomNav" class="md:hidden bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700/80 px-2 py-1 flex items-center justify-around z-20 safe-bottom-nav select-none no-print">
+        
+        <button onclick="switchTab('dashboard')" id="mobile-nav-dashboard" class="flex flex-col items-center py-1.5 px-3 text-indigo-600 dark:text-indigo-400 transition">
+          <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+          <span class="text-[10px] font-semibold mt-0.5">Home</span>
+        </button>
+
+        <button onclick="switchTab('expenses')" id="mobile-nav-expenses" class="flex flex-col items-center py-1.5 px-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">
+          <i data-lucide="receipt" class="w-5 h-5"></i>
+          <span class="text-[10px] font-semibold mt-0.5">Expenses</span>
+        </button>
+
+        <!-- Center FAB Add Button on Mobile -->
+        <button onclick="openAddExpenseModal()" class="flex items-center justify-center w-11 h-11 -mt-4 rounded-full bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 active-press" title="Add Expense">
+          <i data-lucide="plus" class="w-6 h-6"></i>
+        </button>
+
+        <button onclick="switchTab('refills')" id="mobile-nav-refills" class="flex flex-col items-center py-1.5 px-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">
+          <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+          <span class="text-[10px] font-semibold mt-0.5">Refills</span>
+        </button>
+
+        <button onclick="switchTab('settlement')" id="mobile-nav-settlement" class="flex flex-col items-center py-1.5 px-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">
+          <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>
+          <span class="text-[10px] font-semibold mt-0.5">Report</span>
+        </button>
+      </nav>
+
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- MODAL: ADD / EDIT EXPENSE -->
+  <!-- ======================================================== -->
+  <div id="expenseModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/60 modal-backdrop no-print">
+    <div class="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700/60">
+        <h3 id="expenseModalTitle" class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <i data-lucide="plus-circle" class="w-5 h-5 text-indigo-500"></i>
+          <span>Add New Expense</span>
+        </h3>
+        <button onclick="closeExpenseModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="expenseForm" class="space-y-4">
+        <input type="hidden" id="editExpenseId">
+
+        <!-- Amount -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Amount (<span class="currency-symbol">₹</span>)</label>
+          <div class="relative">
+            <span class="currency-symbol absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-bold text-lg">₹</span>
+            <input id="expenseAmount" type="number" step="0.01" min="0.01" required placeholder="0.00"
+              class="w-full pl-8 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-lg font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+
+        <!-- Description with AI Category Auto-Detect -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Description / Note</label>
+          <div class="relative">
+            <input id="expenseDescription" type="text" required placeholder="e.g. Canteen lunch, Metro fare, Notebooks, Wifi bill"
+              oninput="handleDescriptionChange(this.value)"
+              class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+
+        <!-- Category & Date Grid -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Category</label>
+              <span id="aiCategoryBadge" class="hidden text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full flex items-center gap-1 border border-indigo-200/50 dark:border-indigo-800/40">
+                <i data-lucide="sparkles" class="w-3 h-3 text-indigo-500"></i>
+                <span id="aiCategoryText">AI Selected</span>
+              </span>
+            </div>
+            <select id="expenseCategory" required onchange="handleUserCategoryOverride()"
+              class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+              <!-- Populated dynamically -->
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Date</label>
+            <input id="expenseDate" type="date" required
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+
+        <!-- Payment Mode & Contextual Dynamic Details -->
+        <div class="space-y-3 pt-1">
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Payment Mode</label>
+            <select id="expensePaymentMode" onchange="handlePaymentModeChange()"
+              class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+              <option value="UPI">UPI (GPay / PhonePe / Paytm)</option>
+              <option value="Cash">Cash</option>
+              <option value="Card">Debit / Credit Card</option>
+              <option value="Net Banking">Net Banking</option>
+            </select>
+          </div>
+
+          <!-- Dynamic Container based on Payment Mode -->
+          <div id="dynamicPaymentSection" class="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-700/70">
+            
+            <!-- 1. UPI Payment Mode: Payment App Name (Optional) -->
+            <div id="upiFieldGroup" class="space-y-2">
+              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Payment / UPI App Name <span class="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <input id="upiAppNameInput" type="text" placeholder="e.g. Google Pay, PhonePe, Paytm, CRED, BHIM"
+                class="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+              <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span class="text-[10px] text-slate-400">Quick select:</span>
+                <button type="button" onclick="selectUpiApp('Google Pay')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">Google Pay</button>
+                <button type="button" onclick="selectUpiApp('PhonePe')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">PhonePe</button>
+                <button type="button" onclick="selectUpiApp('Paytm')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">Paytm</button>
+                <button type="button" onclick="selectUpiApp('CRED')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">CRED</button>
+                <button type="button" onclick="selectUpiApp('BHIM')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">BHIM</button>
+              </div>
+            </div>
+
+            <!-- 2. Cash Payment Mode: Remark (Optional) -->
+            <div id="cashFieldGroup" class="hidden space-y-1.5">
+              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Remark <span class="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <input id="cashRemarkInput" type="text" placeholder="e.g. Paid in loose change, paid cashier directly, canteen cash"
+                class="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+            </div>
+
+            <!-- 3. Card Payment Mode: Card details saved for future (Optional) -->
+            <div id="cardFieldGroup" class="hidden space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Card Details <span class="text-slate-400 font-normal">(Optional - saved for future)</span>
+                </label>
+              </div>
+              
+              <!-- Saved Card Picker -->
+              <div id="savedCardsContainer" class="hidden space-y-1">
+                <label class="text-[10px] font-semibold text-slate-500">Saved Cards:</label>
+                <select id="savedCardsSelect" onchange="handleSavedCardChange()"
+                  class="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white">
+                </select>
+              </div>
+
+              <!-- Card Inputs -->
+              <div class="grid grid-cols-3 gap-2">
+                <input id="cardNameInput" type="text" placeholder="Card Name/Bank (e.g. HDFC Millennia)"
+                  class="col-span-2 px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+                <input id="cardLastDigitsInput" type="text" maxlength="4" placeholder="Last 4"
+                  class="px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-indigo-500">
+              </div>
+
+              <div class="flex items-center gap-1.5 pt-0.5">
+                <input id="saveCardCheckbox" type="checkbox" checked class="w-3.5 h-3.5 text-indigo-600 rounded">
+                <label for="saveCardCheckbox" class="text-[10px] text-slate-500 dark:text-slate-400">Save card nickname for future quick transactions</label>
+              </div>
+            </div>
+
+            <!-- 4. Net Banking: Bank name & details saved for future (Optional) -->
+            <div id="netBankingFieldGroup" class="hidden space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Bank Details <span class="text-slate-400 font-normal">(Optional - saved for future)</span>
+                </label>
+              </div>
+
+              <!-- Saved Banks Picker -->
+              <div id="savedBanksContainer" class="hidden space-y-1">
+                <label class="text-[10px] font-semibold text-slate-500">Saved Banks:</label>
+                <select id="savedBanksSelect" onchange="handleSavedBankChange()"
+                  class="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white">
+                </select>
+              </div>
+
+              <input id="bankNameInput" type="text" placeholder="e.g. State Bank of India (SBI), HDFC Bank"
+                class="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+
+              <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span class="text-[10px] text-slate-400">Popular:</span>
+                <button type="button" onclick="selectBankName('SBI')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">SBI</button>
+                <button type="button" onclick="selectBankName('HDFC Bank')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">HDFC</button>
+                <button type="button" onclick="selectBankName('ICICI Bank')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">ICICI</button>
+                <button type="button" onclick="selectBankName('Axis Bank')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">Axis</button>
+                <button type="button" onclick="selectBankName('Kotak Mahindra')" class="px-2 py-0.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-[10px] font-medium rounded-lg text-slate-700 dark:text-slate-300 transition">Kotak</button>
+              </div>
+
+              <div class="flex items-center gap-1.5 pt-0.5">
+                <input id="saveBankCheckbox" type="checkbox" checked class="w-3.5 h-3.5 text-indigo-600 rounded">
+                <label for="saveBankCheckbox" class="text-[10px] text-slate-500 dark:text-slate-400">Save bank name for future quick transactions</label>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Essential Toggle -->
+        <div class="flex items-center gap-2 pt-1">
+          <input id="expenseEssential" type="checkbox" checked class="w-4 h-4 text-indigo-600 rounded border-slate-300">
+          <label for="expenseEssential" class="text-xs text-slate-600 dark:text-slate-300">
+            Mark as <strong>Essential Expense</strong> (for parent settlement breakdown)
+          </label>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700/60">
+          <button type="button" onclick="closeExpenseModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl">
+            Cancel
+          </button>
+          <button type="submit" id="saveExpenseBtn" class="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm active-press flex items-center gap-1.5">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Save Expense</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- MODAL: ADD MID-MONTH REFILL -->
+  <!-- ======================================================== -->
+  <div id="refillModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/60 modal-backdrop no-print">
+    <div class="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700/60">
+        <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <i data-lucide="refresh-cw" class="w-5 h-5 text-emerald-500"></i>
+          <span>Log Mid-Month Refill / Top-up</span>
+        </h3>
+        <button onclick="closeRefillModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="refillForm" class="space-y-4">
+        <!-- Amount -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Refill Amount (<span class="currency-symbol">₹</span>)</label>
+          <div class="relative">
+            <span class="currency-symbol absolute inset-y-0 left-0 pl-3 flex items-center text-emerald-500 font-bold text-lg">₹</span>
+            <input id="refillAmount" type="number" step="0.01" min="1" required placeholder="1500.00"
+              class="w-full pl-8 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-lg font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500">
+          </div>
+        </div>
+
+        <!-- Funding Source -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Funding Source</label>
+          <input id="refillSource" type="text" required placeholder="e.g. Dad, Mom, Elder Brother, Guardian"
+            class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500">
+        </div>
+
+        <!-- Reason -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Reason / Purpose</label>
+          <input id="refillReason" type="text" placeholder="e.g. Mid-month pantry top-up, College exam fees, Emergency"
+            class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500">
+        </div>
+
+        <!-- Date & Mode -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Date Received</label>
+            <input id="refillDate" type="date" required
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Payment Mode</label>
+            <select id="refillMode" class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white">
+              <option value="UPI">UPI Transfer</option>
+              <option value="Bank Transfer">Bank Transfer (NEFT/IMPS)</option>
+              <option value="Cash">Cash Handover</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700/60">
+          <button type="button" onclick="closeRefillModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl">
+            Cancel
+          </button>
+          <button type="submit" class="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm active-press flex items-center gap-1.5">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Add Refill Funds</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- MODAL: SET STARTING MONTHLY ALLOWANCE -->
+  <!-- ======================================================== -->
+  <div id="allowanceModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/60 modal-backdrop no-print">
+    <div class="bg-white dark:bg-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700/60">
+        <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <i data-lucide="piggy-bank" class="w-5 h-5 text-indigo-500"></i>
+          <span>Set Starting Monthly Allowance</span>
+        </h3>
+        <button onclick="closeSetAllowanceModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="allowanceForm" class="space-y-4">
+        <!-- Amount -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Base Monthly Allowance (<span class="currency-symbol">₹</span>)</label>
+          <div class="relative">
+            <span class="currency-symbol absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-bold text-lg">₹</span>
+            <input id="setAllowanceAmount" type="number" step="0.01" min="0" required placeholder="5000.00"
+              class="w-full pl-8 pr-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-lg font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <p class="text-[11px] text-slate-400 mt-1">Starting fund deposited for the month</p>
+        </div>
+
+        <!-- Funding Source -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Funding Source</label>
+          <input id="setAllowanceSource" type="text" placeholder="e.g. Parents, Dad, Mom, Self"
+            class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white">
+        </div>
+
+        <!-- Notes -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">Notes / Budget Target</label>
+          <textarea id="setAllowanceNotes" rows="2" placeholder="e.g. Target: ₹150 daily budget, ₹1000 buffer for books"
+            class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"></textarea>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700/60">
+          <button type="button" onclick="closeSetAllowanceModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl">
+            Cancel
+          </button>
+          <button type="submit" class="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm active-press flex items-center gap-1.5">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Update Allowance</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
