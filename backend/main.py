@@ -875,21 +875,32 @@ def export_csv(
 # ==========================================
 
 import os
-static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+from fastapi.responses import HTMLResponse
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+static_dir = os.path.join(BASE_DIR, "static")
+
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-    @app.get("/")
-    def serve_index():
-        return FileResponse(os.path.join(static_dir, "index.html"))
+@app.get("/", response_class=HTMLResponse)
+def serve_index():
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return HTMLResponse("<h1>Vivixo Expense Tracker API is Running Successfully!</h1>")
 
-    @app.get("/manifest.json")
-    def serve_manifest():
-        return FileResponse(os.path.join(static_dir, "manifest.json"))
+@app.get("/manifest.json")
+def serve_manifest():
+    manifest_path = os.path.join(static_dir, "manifest.json")
+    if os.path.exists(manifest_path):
+        return FileResponse(manifest_path, media_type="application/json")
+    raise HTTPException(status_code=404, detail="Manifest not found")
 
-    @app.get("/sw.js")
-    def serve_service_worker():
-        return FileResponse(
-            os.path.join(static_dir, "sw.js"),
-            media_type="application/javascript"
-        )
+@app.get("/sw.js")
+def serve_service_worker():
+    sw_path = os.path.join(static_dir, "sw.js")
+    if os.path.exists(sw_path):
+        return FileResponse(sw_path, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="Service worker not found")
+    )
