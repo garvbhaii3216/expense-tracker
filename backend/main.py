@@ -903,4 +903,3 @@ def serve_service_worker():
     if os.path.exists(sw_path):
         return FileResponse(sw_path, media_type="application/javascript")
     raise HTTPException(status_code=404, detail="Service worker not found")
-    )
