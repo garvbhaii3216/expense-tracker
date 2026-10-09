@@ -1,0 +1,105 @@
+/* Custom CSS enhancements for Personal Expense & Allowance Tracker */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.7);
+}
+
+/* Smooth modal backdrop transition */
+.modal-backdrop {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Card hover animation */
+.card-hover {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+}
+
+/* Safe area padding for mobile bottom nav on newer devices with home indicator */
+.safe-bottom-padding {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 16px));
+}
+
+.safe-bottom-nav {
+  padding-bottom: env(safe-area-inset-bottom, 8px);
+}
+
+/* Pulse animation for budget warnings */
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.02); }
+}
+
+.badge-alert {
+  animation: soft-pulse 2s infinite ease-in-out;
+}
+
+/* Touch active feedback */
+.active-press:active {
+  transform: scale(0.97);
+}
+
+/* Print styling for Parent Settlement Report */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide navigation, sidebar, action buttons, modals backdrop */
+  nav, aside, header, #bottomNav, #fabAddExpense, .no-print, button, .modal-close {
+    display: none !important;
+  }
+
+  /* Expand print report container */
+  #settlementModal {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  #settlementModalContent {
+    box-shadow: none !important;
+    border: 1px solid #e2e8f0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 16px !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+}
